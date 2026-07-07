@@ -1,0 +1,32 @@
+/dts-v1/;
+/plugin/;
+
+// On my setup (6.19.13-bone16), gpioN does NOT map to gpiochipN
+// Instead it maps as the following:
+//   - gpio0 => gpiochip3
+//   - gpio1 => gpiochip0
+//   - gpio2 => gpiochip1
+//   - gpio3 => gpiochip2
+//
+// Keep that in mind when changing the assigned pins for each function.
+// Format is as follows:
+//      <&gpiochip line_offset state>
+// where:
+//      - `gpiochip` is one of the four values above.
+//      - `line_offset` is the offset of the pin on the chip (line N in `gpioinfo` output)
+//      - `state` is the default state of the line (0: low, 1: high)
+//
+// Run `gpioinfo` on your BeagleBone Black terminal for more details
+
+&{/} {
+	hd44780_lcd {
+		lcd-gpios = <&gpio0 26 0>, // RS => P8_14
+		            <&gpio1 15 0>, // RW => P8_15
+		            <&gpio1 14 0>, // Enable => P8_16
+		// Data pins
+		            <&gpio2 2 0>, // D4 => P8_7
+		            <&gpio2 3 0>, // D5 => P8_8
+		            <&gpio2 5 0>, // D6 => P8_9
+		            <&gpio2 4 0>; // D7 => P8_10
+	};
+};

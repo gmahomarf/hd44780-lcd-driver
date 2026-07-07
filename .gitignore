@@ -1,0 +1,7 @@
+/build
+/.vscode
+/.idea
+src/hd44780_lcd-dtbo.c
+src/*.dtbo
+src/*.dts
+/*build*/
