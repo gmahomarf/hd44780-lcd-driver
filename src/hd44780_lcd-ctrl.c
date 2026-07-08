@@ -3,6 +3,7 @@
 #include <linux/gpio/consumer.h>
 #include <linux/types.h>
 #include <linux/delay.h>
+#include <linux/pwm.h>
 
 // Most instructions complete in 39 us, but a couple do so in 43 us. This covers both
 #define SLEEP_SHORT_MICROSECONDS 50
@@ -16,9 +17,9 @@ void hd44780_lcd_disable(const struct lcd_data *lcd_data);
 void hd44780_lcd_write_instruction(const struct lcd_data *lcd_data, uint8_t instruction);
 void hd44780_lcd_write_byte(const struct lcd_data *lcd_data, uint8_t data);
 void hd44780_lcd_set_raw_address(const struct lcd_data *lcd_data, uint8_t address);
-void hd44780_lcd_set_pos(const struct lcd_data *lcd_data, uint8_t row, uint8_t column);
 void hd44780_lcd_wait_short(void);
 void hd44780_lcd_wait_long(void);
+void maybe_new_backlight_color(struct pwm_device *pwm, uint8_t color, const char *label);
 
 void hd44780_lcd_turn_on(const struct lcd_data *lcd_data) {
 	hd44780_lcd_write_instruction(lcd_data,
@@ -50,10 +51,9 @@ void hd44780_lcd_read_data(const struct lcd_data *lcd_data, char *buf, const siz
 	gpiod_set_value(lcd_data->rs, rs_data);
 	gpiod_set_value(lcd_data->rw, rw_read);
 
-	const size_t limit = buf_length <= LCD_MAX_BUFFER_LENGTH ? buf_length : LCD_MAX_BUFFER_LENGTH;
+	const size_t limit = buf_length <= LCD_BUFFER_LENGTH ? buf_length : LCD_BUFFER_LENGTH;
 	for (int i = 0; i < limit; i++) {
 		buf[i] = hd44780_lcd_read_byte(lcd_data);
-		// LCD_DEBUG("Char: %02x (%c)\n", buf[i], buf[i]);
 	}
 }
 
@@ -107,6 +107,48 @@ void hd44780_lcd_init(struct lcd_data *lcd_data) {
 
 	hd44780_lcd_clear(lcd_data);
 	hd44780_lcd_wait_long();
+}
+
+void maybe_new_backlight_color(struct pwm_device *pwm, uint8_t color, const char *label) {
+	struct pwm_state state;
+	u64 duty_cycle = pwm_get_duty_cycle(pwm);
+	u64 new_duty_cycle = (color * LCD_BACKLIGHT_PERIOD) / 255ULL;
+
+	if (new_duty_cycle != duty_cycle) {
+		LCD_INFO("Color: %s; Old duty: %llu; new duty: %llu\n", label, duty_cycle, new_duty_cycle);
+		pwm_init_state(pwm, &state);
+		state.duty_cycle = new_duty_cycle;
+		state.period = LCD_BACKLIGHT_PERIOD;
+		int r = pwm_apply_might_sleep(pwm, &state);
+		if (r < 0) {
+			LCD_ERROR("Error changing duty cycle to %llu for %s: %d", new_duty_cycle, label, r);
+		}
+	}
+}
+
+void hd44780_set_backlight_color(const struct lcd_data *lcd_data, uint8_t red, uint8_t green, uint8_t blue) {
+	if (!lcd_data->rgb_enabled) {
+		return;
+	}
+
+	maybe_new_backlight_color(lcd_data->bl_r, red, "red");
+	maybe_new_backlight_color(lcd_data->bl_g, green, "green");
+	maybe_new_backlight_color(lcd_data->bl_b, blue, "blue");
+}
+
+void hd44780_lcd_set_position(struct lcd_data *lcd_data, uint8_t pos) {
+	if (pos < 0) {
+		pos = 0;
+	}
+
+	if (pos >= LCD_BUFFER_LENGTH) {
+		pos = LCD_BUFFER_LENGTH - 1;
+	}
+
+	uint8_t address = line_addresses[pos / LCD_LINE_LENGTH] + (pos % LCD_LINE_LENGTH);
+
+	LCD_DEBUG("Set position: %u; address: %u", pos, address);
+	hd44780_lcd_set_raw_address(lcd_data, address);
 }
 
 // private functions
@@ -230,12 +272,12 @@ void hd44780_lcd_set_raw_address(const struct lcd_data *lcd_data, const uint8_t 
 	hd44780_lcd_wait_short();
 }
 
-void hd44780_lcd_set_pos(const struct lcd_data *lcd_data, uint8_t row, uint8_t column) {
-	if (row > 3) {
-		row = 3;
+void hd44780_lcd_set_coords(const struct lcd_data *lcd_data, uint8_t row, uint8_t column) {
+	if (row >= LCD_LINE_COUNT) {
+		row = LCD_LINE_COUNT - 1;
 	}
-	if (column > 19) {
-		column = 19;
+	if (column >= LCD_LINE_LENGTH) {
+		column = LCD_LINE_LENGTH - 1;
 	}
 
 	hd44780_lcd_set_raw_address(lcd_data, line_addresses[row] + column);

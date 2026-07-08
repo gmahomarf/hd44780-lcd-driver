@@ -122,7 +122,7 @@ void hd44780_lcd_turn_off(const struct lcd_data *lcd_data);
  * @brief Show a string on the HD44780_LCD display
  *
  * @param lcd_data The HD44780_LCD data struct
- * @param data The data to wriote
+ * @param data The data to write
  * @param data_length the length of the data to write
  */
 void hd44780_lcd_write_data(const struct lcd_data *lcd_data, const char *data, size_t data_length);
@@ -140,11 +140,13 @@ void hd44780_lcd_read_data(const struct lcd_data *lcd_data, char *buf, size_t bu
  * @brief Update a single character in the display
  *
  * @param lcd_data The HD44780_LCD data struct
- * @param pos The position to set (0 - 4)
- * @param c The character to set
+ * @param pos The position to set
  */
-void hd44780_lcd_set_position(struct lcd_data *lcd_data, uint8_t pos, char c);
+void hd44780_lcd_set_position(struct lcd_data *lcd_data, uint8_t pos);
+
+void hd44780_lcd_set_coords(const struct lcd_data *lcd_data, uint8_t row, uint8_t column);
 
 void hd44780_lcd_clear(const struct lcd_data *lcd_data);
+void hd44780_set_backlight_color(const struct lcd_data *lcd_data, uint8_t red, uint8_t green, uint8_t blue);
 
 #endif //HD44780_LCD_HD44780_LCD_CTRL_H

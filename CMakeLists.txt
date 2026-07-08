@@ -41,8 +41,8 @@ project(${MODULE_NAME}
 set(DRIVER_BASE module/${MODULE_NAME})
 set(DRIVER_FILE ${DRIVER_BASE}.ko)
 set(KBUILD_CMD make
-        $<IF:$<STREQUAL:${ARCH},>,,ARCH=${ARCH}>
-        $<IF:$<STREQUAL:${CROSS_COMPILE},>,,CROSS_COMPILE=${CROSS_COMPILE}>
+        ARCH=${ARCH}
+        CROSS_COMPILE=${CROSS_COMPILE}
         -C "${KERNEL_DIR}"
         modules
         M=${CMAKE_CURRENT_SOURCE_DIR}
@@ -82,6 +82,12 @@ set(DRIVER_SOURCES
         src/${MODULE_NAME}-driver.c
         src/${MODULE_NAME}-dtbo.c
 )
+set(DRIVER_HEADERS
+        src/${MODULE_NAME}-cdev.h
+        src/${MODULE_NAME}-ctrl.h
+        src/${MODULE_NAME}-driver.h
+        src/${MODULE_NAME}-dtbo.h
+)
 
 add_custom_command(
         OUTPUT
@@ -96,7 +102,7 @@ add_custom_command(
         ${DRIVER_BASE}.mod.c
         COMMAND ${KBUILD_CMD}
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-        DEPENDS ${DRIVER_SOURCES}
+        DEPENDS ${DRIVER_SOURCES} ${DRIVER_HEADERS}
         VERBATIM
 )
 
@@ -113,29 +119,17 @@ add_custom_target(driver ALL
 # Add header files
 include_directories(
         "${KERNEL_DIR}/include"
-        "${KERNEL_DIR}/arch/${ARCH}/include/generated"
         "${KERNEL_DIR}/arch/${ARCH}/include"
 )
 
 message(DEBUG "Sources: ${DRIVER_SOURCES}")
-set(KBUILD_SOURCE "obj-m := ${MODULE_NAME}.o")
-foreach (DRIVER_SOURCE ${DRIVER_SOURCES})
-    get_filename_component(_BASENAME ${DRIVER_SOURCE} NAME_WE)
-    get_filename_component(_DIRNAME ${DRIVER_SOURCE} DIRECTORY)
+string(JOIN " \\\n\t" DRV_TMP ${DRIVER_SOURCES})
+string(REPLACE ".c" ".o" DRV_TMP ${DRV_TMP})
 
-    set(KBUILD_SOURCE "${KBUILD_SOURCE}
-${MODULE_NAME}-y += ${_DIRNAME}/${_BASENAME}.o"
-    )
-endforeach ()
-
+set(KBUILD_SOURCE "obj-m := ${MODULE_NAME}.o
+${MODULE_NAME}-y = " ${DRV_TMP})
 message(DEBUG "KBUILD_SOURCE: ${KBUILD_SOURCE}")
 
 # Generate the KBuild file through cmake.
 file(WRITE ${CMAKE_CURRENT_SOURCE_DIR}/Kbuild
         ${KBUILD_SOURCE})
-#file(WRITE ${CMAKE_CURRENT_SOURCE_DIR}/Kbuild
-#        "obj-m := ${MODULE_NAME}.o
-#${MODULE_NAME}-y += src/${MODULE_NAME}.o
-#${MODULE_NAME}-y += src/${MODULE_NAME}-cdev.o
-#${MODULE_NAME}-y += src/${MODULE_NAME}-driver.o
-#")
