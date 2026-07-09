@@ -39,9 +39,9 @@
 		// Setting them to active low reduces cognitive overhead because setting its value
 		// to 1 turns it on and setting it to 0 turns it off
 		// DO NOT CHANGE THESE VALUES UNLESS YOU'VE LOADED A DIFFERENT OVERLAY!!!!
-		pwms = <&ehrpwm0 1 1000000 1>, // R => P9_29
-		       <&ehrpwm0 0 1000000 1>, // G => P9_31
-		       <&ehrpwm1 0 1000000 1>; // B => P9_14
+		pwms = <&ehrpwm0 1 50000 1>, // R => P9_29
+		       <&ehrpwm0 0 50000 1>, // G => P9_31
+		       <&ehrpwm1 0 50000 1>; // B => P9_14
 		*/
 	};
 };

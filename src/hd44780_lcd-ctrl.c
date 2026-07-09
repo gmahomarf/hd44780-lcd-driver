@@ -66,15 +66,16 @@ void hd44780_lcd_init(struct lcd_data *lcd_data) {
 	// we can safely(?) assume the LCD hasn't been initialized
 	uint8_t c = 0x20;
 	int n;
+	bool init = true;
 	for (n = 0; n < 4; n++) {
 		c = hd44780_lcd_read_byte(lcd_data);
 		if (c != 0x22 && c != 0xF2) {
-			LCD_DEBUG("Not running init. c: %X", c);
-			lcd_data->initialized = true;
-			return;
+			// lcd_data->initialized = true;
+			// return;
+			init = false;
+			break;
 		}
 	}
-	LCD_DEBUG("Running init. c was 0x%02X", c);
 
 	// Move cursor back n spaces because reading moved it forward n spaces
 	const uint8_t address = hd44780_lcd_get_address(lcd_data);
@@ -86,15 +87,17 @@ void hd44780_lcd_init(struct lcd_data *lcd_data) {
 		hd44780_lcd_set_raw_address(lcd_data, address - n);
 	}
 
-	// To enable 4-bit mode, this needs to be sent as a single write. All other instructions are sent as two writes
-	const int instruction = INSTRUCTION_SET_FUNCTION | FUNCTION_DATA_LENGTH_4;
-	hd44780_lcd_enable(lcd_data);
-	for (int i = 4; i < 8; i++) {
-		gpiod_direction_output(lcd_data->data[i - 4], GPIOD_OUT_LOW);
-		gpiod_set_value(lcd_data->data[i - 4], (instruction >> i) & 1);
+	if (init) {
+		// To enable 4-bit mode, this needs to be sent as a single write. All other instructions are sent as two writes
+		const int instruction = INSTRUCTION_SET_FUNCTION | FUNCTION_DATA_LENGTH_4;
+		hd44780_lcd_enable(lcd_data);
+		for (int i = 4; i < 8; i++) {
+			gpiod_direction_output(lcd_data->data[i - 4], GPIOD_OUT_LOW);
+			gpiod_set_value(lcd_data->data[i - 4], (instruction >> i) & 1);
+		}
+		hd44780_lcd_disable(lcd_data);
+		hd44780_lcd_wait_short();
 	}
-	hd44780_lcd_disable(lcd_data);
-	hd44780_lcd_wait_short();
 
 	hd44780_lcd_write_instruction(
 		lcd_data, INSTRUCTION_SET_FUNCTION | FUNCTION_DATA_LENGTH_4 | FUNCTION_FONT_5X8 | FUNCTION_LINES_2);
@@ -109,13 +112,18 @@ void hd44780_lcd_init(struct lcd_data *lcd_data) {
 	hd44780_lcd_wait_long();
 }
 
+void hd44780_lcd_set_lines(struct lcd_data *lcd_data, uint8_t lines) {
+	hd44780_lcd_write_instruction(
+		lcd_data, INSTRUCTION_SET_FUNCTION | (lines == 1 ? FUNCTION_LINES_1 : FUNCTION_LINES_2));
+	hd44780_lcd_wait_short();
+}
+
 void maybe_new_backlight_color(struct pwm_device *pwm, uint8_t color, const char *label) {
 	struct pwm_state state;
 	u64 duty_cycle = pwm_get_duty_cycle(pwm);
 	u64 new_duty_cycle = (color * LCD_BACKLIGHT_PERIOD) / 255ULL;
 
 	if (new_duty_cycle != duty_cycle) {
-		LCD_INFO("Color: %s; Old duty: %llu; new duty: %llu\n", label, duty_cycle, new_duty_cycle);
 		pwm_init_state(pwm, &state);
 		state.duty_cycle = new_duty_cycle;
 		state.period = LCD_BACKLIGHT_PERIOD;
@@ -147,7 +155,6 @@ void hd44780_lcd_set_position(struct lcd_data *lcd_data, uint8_t pos) {
 
 	uint8_t address = line_addresses[pos / LCD_LINE_LENGTH] + (pos % LCD_LINE_LENGTH);
 
-	LCD_DEBUG("Set position: %u; address: %u", pos, address);
 	hd44780_lcd_set_raw_address(lcd_data, address);
 }
 

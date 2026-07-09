@@ -148,5 +148,6 @@ void hd44780_lcd_set_coords(const struct lcd_data *lcd_data, uint8_t row, uint8_
 
 void hd44780_lcd_clear(const struct lcd_data *lcd_data);
 void hd44780_set_backlight_color(const struct lcd_data *lcd_data, uint8_t red, uint8_t green, uint8_t blue);
+void hd44780_lcd_set_lines(struct lcd_data *lcd_data, uint8_t lines);
 
 #endif //HD44780_LCD_HD44780_LCD_CTRL_H

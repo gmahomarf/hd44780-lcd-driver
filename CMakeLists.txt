@@ -6,6 +6,40 @@ set(MODULE_NAME "hd44780_lcd")
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+project(${MODULE_NAME}
+        VERSION ${MODULE_VERSION}
+        LANGUAGES C
+)
+
+###########################################################
+#############     Project setup/config     ################
+###########################################################
+
+set(DRIVER_FILE ${MODULE_NAME}.ko)
+
+set(DEVICE_TREE_SOURCE src/lcd-gpio.dts)
+set(DEVICE_TREE_BLOB src/lcd-gpio.dtbo)
+set(DEVICE_TREE_BLOB_C src/${MODULE_NAME}-dtbo.c)
+
+### List all sources and headers. This ensures modification times are checked before building
+set(DRIVER_SOURCES
+        src/${MODULE_NAME}.c
+        src/${MODULE_NAME}-cdev.c
+        src/${MODULE_NAME}-ctrl.c
+        src/${MODULE_NAME}-driver.c
+        ${DEVICE_TREE_BLOB_C}
+)
+set(DRIVER_HEADERS
+        src/${MODULE_NAME}-cdev.h
+        src/${MODULE_NAME}-common.h
+        src/${MODULE_NAME}-ctrl.h
+        src/${MODULE_NAME}-driver.h
+        src/${MODULE_NAME}-dtbo.h
+)
+
+###########################################################
+#################      KBuild config      #################
+###########################################################
 set(ARCH arm)
 set(CROSS_COMPILE arm-linux-gnueabihf-)
 
@@ -15,8 +49,9 @@ set(CACHE{KERNEL_DIR}
         VALUE ""
 )
 
-add_definitions(-D__KERNEL__ -DMODULE -DKBUILD_MODNAME="${MODULE_NAME}")
-
+#[[
+# This only makes sense when compiling on the board. I don't feel like doing that :)\
+# Leaving it here anyways for possible future use
 if ("${KERNEL_DIR}" STREQUAL "")
     execute_process(
             COMMAND uname -r
@@ -26,94 +61,106 @@ if ("${KERNEL_DIR}" STREQUAL "")
     message(STATUS "Kernel version: ${KERNEL_VERSION}")
     set(KERNEL_DIR "/lib/modules/${KERNEL_VERSION}/build")
 endif ()
+]]
 
 if (NOT IS_READABLE ${KERNEL_DIR})
     message(FATAL_ERROR "\nDirectory ${KERNEL_DIR} does not exist or is not readable")
 endif ()
 
-message(STATUS "Kernel dir: ${KERNEL_DIR}")
-
-project(${MODULE_NAME}
-        VERSION ${MODULE_VERSION}
-        LANGUAGES C
+set(KCPPFLAGS "-DLCD_LINE_COUNT=${LCD_LINE_COUNT}" "-DLCD_LINE_LENGTH=${LCD_LINE_LENGTH}")
+list(FILTER KCPPFLAGS
+        EXCLUDE REGEX "=$"
 )
 
-set(DRIVER_BASE module/${MODULE_NAME})
-set(DRIVER_FILE ${DRIVER_BASE}.ko)
+###########################################################
+##########     KBuild file generation stuff     ###########
+###########################################################
+string(JOIN " \\\n\t" DRV_TMP ${DRIVER_SOURCES})
+string(REPLACE ".c" ".o" DRV_TMP ${DRV_TMP})
+
+set(KBUILD_SOURCE "obj-m := ${MODULE_NAME}.o
+${MODULE_NAME}-y = " ${DRV_TMP})
+
+file(WRITE ${CMAKE_CURRENT_SOURCE_DIR}/Kbuild
+        ${KBUILD_SOURCE})
+
+###########################################################
+################     Custom commands     ##################
+###########################################################
+
+### Compile Device Tree source to blob
+set(DTC_BUILD_CMD
+        dtc
+        -@
+        -I dts
+        -O dtb
+        -o ${DEVICE_TREE_BLOB}
+        ${DEVICE_TREE_SOURCE}
+)
+add_custom_target(dtb
+        COMMAND ${DTC_BUILD_CMD}
+        BYPRODUCTS ${DEVICE_TREE_BLOB}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        SOURCES ${DEVICE_TREE_SOURCE}
+        VERBATIM
+)
+
+### Create DTB C source file
+#[[
+
+Here we leverage `xxd`s `-i` flag to generates a C file that contains the compiled Device Tree blob (DTB) as an
+`unsigned char` array and an `unsigned int` length. The code looks something like this:
+
+    unsigned char __some_name[] = {...};
+    unsigned int _some_name_len = ...;
+
+We pipe the output through sed to add a GCC attribute `__attribute__((aligned(8)))` to ensure the DTB is properly
+aligned in memory (See https://gcc.gnu.org/onlinedocs/gcc/Common-Attributes.html#index-aligned for more info)
+Per https://github.com/torvalds/linux/blob/0e35b9b6ec0ffcc5e23cbdec09f5c622ad532b53/scripts/dtc/libfdt/fdt.c#L93-L95,
+DTB must start at an 8-byte aligned address.
+
+NB: Debugging why the DTB would sometimes pass the header checks and other times wouldn't was... let's say fun.
+]]
+add_custom_target(dtb_c
+        COMMAND sh -c "xxd -i -n lcd_dtbo ${DEVICE_TREE_BLOB} | sed 's#\\[\\] =#[] __attribute__((aligned(8))) =#' > ${DEVICE_TREE_BLOB_C}"
+        BYPRODUCTS ${DEVICE_TREE_BLOB_C}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        SOURCES ${DEVICE_TREE_BLOB}
+        VERBATIM
+)
+add_dependencies(dtb_c dtb)
+
+### Build the kernel module
 set(KBUILD_CMD make
         ARCH=${ARCH}
         CROSS_COMPILE=${CROSS_COMPILE}
         -C "${KERNEL_DIR}"
         modules
         M=${CMAKE_CURRENT_SOURCE_DIR}
-        MO=${CMAKE_CURRENT_BINARY_DIR}/module
-)
-set(DTC_BUILD_CMD
-        dtc
-        -@
-        -I dts
-        -O dtb
-        -o src/lcd-gpio.dtbo
-        src/lcd-gpio.dts
+        MO=${CMAKE_CURRENT_BINARY_DIR}
+        KCPPFLAGS=${KCPPFLAGS}
 )
 
-message(DEBUG "Kbuild cmd: ${KBUILD_CMD}")
-
-add_custom_command(
-        OUTPUT src/lcd-gpio.dtbo
-        COMMAND ${DTC_BUILD_CMD}
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        DEPENDS src/lcd-gpio.dts
-        VERBATIM
-)
-
-add_custom_command(
-        OUTPUT src/${MODULE_NAME}-dtbo.c
-        COMMAND sh -c "xxd -i -n lcd_dtbo src/lcd-gpio.dtbo | sed 's#\\[\\] =#[] __attribute__ ((aligned (8))) =#' > src/${MODULE_NAME}-dtbo.c"
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        DEPENDS src/lcd-gpio.dtbo
-        VERBATIM
-)
-
-set(DRIVER_SOURCES
-        src/${MODULE_NAME}.c
-        src/${MODULE_NAME}-cdev.c
-        src/${MODULE_NAME}-ctrl.c
-        src/${MODULE_NAME}-driver.c
-        src/${MODULE_NAME}-dtbo.c
-)
-set(DRIVER_HEADERS
-        src/${MODULE_NAME}-cdev.h
-        src/${MODULE_NAME}-ctrl.h
-        src/${MODULE_NAME}-driver.h
-        src/${MODULE_NAME}-dtbo.h
-)
-
-add_custom_command(
-        OUTPUT
-        ${DRIVER_FILE}
-        ${DRIVER_BASE}.o
-        ${DRIVER_BASE}.mod
-        ${DRIVER_BASE}.mod.o
-        module/.${MODULE_NAME}.ko.cmd
-        module/.${MODULE_NAME}.o.cmd
-        module/.${MODULE_NAME}.mod.cmd
-        module/.${MODULE_NAME}.mod.o.cmd
-        ${DRIVER_BASE}.mod.c
+add_custom_target(module
+        BYPRODUCTS ${DRIVER_FILE}
         COMMAND ${KBUILD_CMD}
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-        DEPENDS ${DRIVER_SOURCES} ${DRIVER_HEADERS}
+        SOURCES ${DRIVER_SOURCES} ${DRIVER_HEADERS}
         VERBATIM
 )
 
+add_dependencies(module dtb_c)
+
+### Add single target to build everything
+add_custom_target(driver ALL
+        DEPENDS ${DRIVER_FILE}
+)
+
+# Commands beyond this comment are only here to please IDEs (or their plugins) that either support CMake directly or
+# support compile_commands.json
 # Parse c files
 add_library(dummy_target
         ${DRIVER_SOURCES}
-)
-
-add_custom_target(driver ALL
-        DEPENDS
-        ${DRIVER_FILE}
 )
 
 # Add header files
@@ -122,14 +169,11 @@ include_directories(
         "${KERNEL_DIR}/arch/${ARCH}/include"
 )
 
-message(DEBUG "Sources: ${DRIVER_SOURCES}")
-string(JOIN " \\\n\t" DRV_TMP ${DRIVER_SOURCES})
-string(REPLACE ".c" ".o" DRV_TMP ${DRV_TMP})
+# Add some definitions added by KBuild
+add_compile_definitions(
+        __KERNEL__
+        MODULE
+        KBUILD_MODNAME="${MODULE_NAME}"
+)
 
-set(KBUILD_SOURCE "obj-m := ${MODULE_NAME}.o
-${MODULE_NAME}-y = " ${DRV_TMP})
-message(DEBUG "KBUILD_SOURCE: ${KBUILD_SOURCE}")
 
-# Generate the KBuild file through cmake.
-file(WRITE ${CMAKE_CURRENT_SOURCE_DIR}/Kbuild
-        ${KBUILD_SOURCE})

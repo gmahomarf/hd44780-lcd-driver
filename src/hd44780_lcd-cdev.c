@@ -107,8 +107,6 @@ static ssize_t hd44780_lcd_write(struct file *file, const char __user *buf, cons
 		return -EFAULT;
 	}
 
-	LCD_DEBUG("Want to write %d bytes at offset %lld\n", count, *off);
-
 	if (*off == 0) {
 		switch (data[0]) {
 		case 0x88:
@@ -137,8 +135,6 @@ static ssize_t hd44780_lcd_read(struct file *file, char __user *buf, size_t coun
 
 	memset(data, 0, n + 1);
 
-	LCD_DEBUG("Want to read %d bytes at offset %lld\n", count, *off);
-
 	hd44780_lcd_read_data(lcd_data, data, n);
 
 	if (copy_to_user(buf, data, n)) {
@@ -147,14 +143,12 @@ static ssize_t hd44780_lcd_read(struct file *file, char __user *buf, size_t coun
 
 	kfree(data);
 
-	return (ssize_t)n;
+	return (ssize_t)count;
 }
 
 static loff_t hd44780_lcd_seek(struct file *file, const loff_t offset, const int whence) {
 	mutex_lock(&file->f_pos_lock);
 	struct lcd_data *lcd_data = file->private_data;
-
-	LCD_DEBUG("Seeking to %lld (whence %d)\n", offset, whence);
 
 	if (whence == SEEK_SET) {
 		lcd_data->pos = offset > LCD_BUFFER_LENGTH ? LCD_BUFFER_LENGTH : offset;
@@ -198,7 +192,7 @@ static ssize_t handle_control_code(struct lcd_data *lcd_data, const char *data, 
 		if (count != 2) {
 			return -EINVAL;
 		}
-		LCD_INFO("Clearing lcd...\n");
+		LCD_DEBUG("Clearing lcd...\n");
 		hd44780_lcd_clear(lcd_data);
 		lcd_data->pos = 0;
 		break;
@@ -208,7 +202,7 @@ static ssize_t handle_control_code(struct lcd_data *lcd_data, const char *data, 
 		if (count != 2) {
 			return -EINVAL;
 		}
-		LCD_INFO("Turning lcd on...\n");
+		LCD_DEBUG("Turning lcd on...\n");
 		hd44780_lcd_turn_on(lcd_data);
 		break;
 	}
@@ -217,8 +211,26 @@ static ssize_t handle_control_code(struct lcd_data *lcd_data, const char *data, 
 		if (count != 2) {
 			return -EINVAL;
 		}
-		LCD_INFO("Turning lcd off...\n");
+		LCD_DEBUG("Turning lcd off...\n");
 		hd44780_lcd_turn_off(lcd_data);
+		break;
+	}
+	case '1': {
+		// One line
+		if (count != 2) {
+			return -EINVAL;
+		}
+		LCD_DEBUG("Setting 1 line...\n");
+		hd44780_lcd_set_lines(lcd_data, 1);
+		break;
+	}
+	case '2': {
+		// Two lines
+		if (count != 2) {
+			return -EINVAL;
+		}
+		LCD_DEBUG("Setting 2 lines...\n");
+		hd44780_lcd_set_lines(lcd_data, 2);
 		break;
 	}
 	default:
@@ -260,7 +272,6 @@ static ssize_t handle_write(struct lcd_data *lcd_data, const char *data, const s
 	}
 
 	lcd_data->pos = pos >= LCD_BUFFER_LENGTH ? 0 : pos;
-	LCD_DEBUG("Total bytes written: %u bytes. Final pos: %u\n", written, lcd_data->pos);
 
 	return (ssize_t)count;
 }

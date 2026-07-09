@@ -4,9 +4,15 @@
 #include <linux/cdev.h>
 #include <linux/pwm.h>
 
-#define LCD_DRIVER_NAME "hd44780_lcd"
+#ifndef LCD_LINE_LENGTH
 #define LCD_LINE_LENGTH 20
-#define LCD_LINE_COUNT 4
+#endif
+
+#ifndef LCD_LINE_COUNT
+#define LCD_LINE_COUNT
+#endif
+
+#define LCD_DRIVER_NAME "hd44780_lcd"
 #define LCD_BUFFER_LENGTH LCD_LINE_LENGTH * LCD_LINE_COUNT
 #define LCD_BACKLIGHT_PERIOD 100000 // Nanoseconds, ~10kHz
 

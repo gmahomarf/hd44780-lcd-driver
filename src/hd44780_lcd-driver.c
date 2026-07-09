@@ -90,60 +90,46 @@ static int hd44780_lcd_probe(struct platform_device *pdev) {
 
 	dev_dbg(dev, "Registered ops GPIOs\n");
 
-	lcd_data->rgb_enabled = true;
-	struct pwm_device *r = devm_pwm_get(dev, BACKLIGHT_RED_CON_ID);
-	struct pwm_device *g = devm_pwm_get(dev, BACKLIGHT_GREEN_CON_ID);
-	struct pwm_device *b = devm_pwm_get(dev, BACKLIGHT_BLUE_CON_ID);
-
-	if (IS_ERR(r)) {
-		if (PTR_ERR(r) == -ENODEV) {
-			dev_dbg(dev, "Backlight pin R missing. Disabling RGB lighting...");
+	if (of_property_present(dev->of_node, "pwms") && of_property_present(dev->of_node, "pwm-names")) {
+		lcd_data->rgb_enabled = true;
+		struct pwm_device *g;
+		struct pwm_device *b;
+		struct pwm_device *r = devm_pwm_get(dev, BACKLIGHT_RED_CON_ID);
+		if (IS_ERR(r)) {
 			lcd_data->rgb_enabled = false;
-		} else {
-			dev_err(dev, "Failed to get backlight pin R: %ld\n", PTR_ERR(r));
-			error = PTR_ERR(r);
-			goto cleanup;
+			dev_warn(dev, "Failed to get backlight pin R: %ld. Disabling RGB.\n", PTR_ERR(r));
 		}
-	}
-	if (lcd_data->rgb_enabled && IS_ERR(g)) {
-		if (PTR_ERR(g) == -ENODEV) {
-			dev_dbg(dev, "Backlight pin G missing. Disabling RGB lighting...");
-			lcd_data->rgb_enabled = false;
-		} else {
-			dev_err(dev, "Failed to get backlight pin G: %ld\n", PTR_ERR(g));
-			error = PTR_ERR(g);
-			goto cleanup;
+
+		if (lcd_data->rgb_enabled) {
+			g = devm_pwm_get(dev, BACKLIGHT_GREEN_CON_ID);
+			if (IS_ERR(g)) {
+				lcd_data->rgb_enabled = false;
+				dev_warn(dev, "Failed to get backlight pin G: %ld. Disabling RGB.\n", PTR_ERR(g));
+			}
 		}
-	}
-	if (lcd_data->rgb_enabled && IS_ERR(b)) {
-		if (PTR_ERR(b) == -ENODEV) {
-			dev_dbg(dev, "Backlight pin B missing. Disabling RGB lighting...");
-			lcd_data->rgb_enabled = false;
-		} else {
-			dev_err(dev, "Failed to get backlight pin B: %ld\n", PTR_ERR(b));
-			error = PTR_ERR(b);
-			goto cleanup;
+
+		if (lcd_data->rgb_enabled) {
+			b = devm_pwm_get(dev, BACKLIGHT_BLUE_CON_ID);
+			if (IS_ERR(b)) {
+				lcd_data->rgb_enabled = false;
+				dev_warn(dev, "Failed to get backlight pin B: %ld. Disabling RGB.\n", PTR_ERR(b));
+			}
 		}
-	}
 
-	if (lcd_data->rgb_enabled) {
-		lcd_data->bl_r = r;
-		lcd_data->bl_g = g;
-		lcd_data->bl_b = b;
+		if (lcd_data->rgb_enabled) {
+			lcd_data->bl_r = r;
+			lcd_data->bl_g = g;
+			lcd_data->bl_b = b;
 
-		// pwm_config(r, DUTY_1KHZ, 0);
-		// pwm_config(g, DUTY_1KHZ, 0);
-		// pwm_config(b, DUTY_1KHZ, 0);
+			reset_pwm(r);
+			reset_pwm(g);
+			reset_pwm(b);
 
-		reset_pwm(r);
-		reset_pwm(g);
-		reset_pwm(b);
-
-		dev_dbg(dev, "R label: %s; chip label: %s", r->label, r->chip->gpio.label);
-		dev_dbg(dev, "G label: %s; chip label: %s", g->label, g->chip->gpio.label);
-		dev_dbg(dev, "B label: %s; chip label: %s", b->label, b->chip->gpio.label);
-
-		dev_dbg(dev, "Registered backlight PWM devices\n");
+			dev_dbg(dev, "Registered backlight PWM devices\n");
+		}
+	} else {
+		dev_warn(dev, "Backlight configuration missing in Device Tree. Disabling RGB.");
+		lcd_data->rgb_enabled = false;
 	}
 
 	int ret = hd44780_lcd_create_cdev(dev, lcd_data);
