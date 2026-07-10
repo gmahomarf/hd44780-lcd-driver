@@ -1,10 +1,8 @@
-//
-// Created by gazy on 01-07-2026.
-//
-
 #include "hd44780_lcd-cdev.h"
 #include "hd44780_lcd-driver.h"
 #include "hd44780_lcd-common.h"
+#include "hd44780_lcd-ctrl.h"
+
 #include <linux/gpio/consumer.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
@@ -72,8 +70,6 @@ static int hd44780_lcd_probe(struct platform_device *pdev) {
 		goto cleanup;
 	}
 
-	lcd_data->initialized = false;
-
 	for (int i = 0; i < lcd_ops_pins->ndescs; i++) {
 		gpiod_set_consumer_name(lcd_ops_pins->desc[i], ops_pin_names[i]);
 		gpiod_set_value(lcd_ops_pins->desc[i], 0);
@@ -125,12 +121,16 @@ static int hd44780_lcd_probe(struct platform_device *pdev) {
 			reset_pwm(g);
 			reset_pwm(b);
 
+			lcd_data->color = 0x7F7F7F;
+
 			dev_dbg(dev, "Registered backlight PWM devices\n");
 		}
 	} else {
 		dev_warn(dev, "Backlight configuration missing in Device Tree. Disabling RGB.");
 		lcd_data->rgb_enabled = false;
 	}
+
+	hd44780_lcd_init(lcd_data);
 
 	int ret = hd44780_lcd_create_cdev(dev, lcd_data);
 	if (ret < 0) {

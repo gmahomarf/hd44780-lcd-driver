@@ -1,28 +1,27 @@
 /dts-v1/;
 /plugin/;
 
-/*
-   On my setup (kernel 6.19.13-bone16), gpioN does NOT map to gpiochipN
-   Instead it maps as the following:
-     - gpio0 => gpiochip3
-     - gpio1 => gpiochip0
-     - gpio2 => gpiochip1
-     - gpio3 => gpiochip2
-
-   Keep that in mind when changing the assigned pins for each function.
-   Format is as follows:
-        <&gpiochip line_offset state>
-   where:
-        - `gpiochip` is one of the four values above.
-        - `line_offset` is the offset of the pin on the chip (line N in `gpioinfo` output)
-        - `active_state` is the active state of the line, i.e., whether setting it to active means a high output or
-          a low output (0: high, 1: low)
-
-   Run `gpioinfo` on your BeagleBone Black terminal for more details
-*/
-
 &{/} {
 	hd44780_lcd {
+		/*
+		   On my setup (kernel 6.19.13-bone16), gpioN does NOT map to gpiochipN
+		   Instead it maps as the following:
+			 - gpio0 => gpiochip3
+			 - gpio1 => gpiochip0
+			 - gpio2 => gpiochip1
+			 - gpio3 => gpiochip2
+
+		   Keep that in mind when changing the assigned pins for each function.
+		   Format is as follows:
+				<&gpiochip line_offset state>
+		   where:
+				- `gpiochip` is one of the four values above.
+				- `line_offset` is the offset of the pin on the chip (line N in `gpioinfo` output)
+				- `active_state` is the active state of the line, i.e., whether setting it to active means a high output or
+				  a low output (0: high, 1: low)
+
+		   Run `gpioinfo` on your BeagleBone Black terminal for more details
+		*/
 		ops-gpios = <&gpio0 26 0>, // RS => P8_14
 		            <&gpio1 15 0>, // RW => P8_15
 		            <&gpio1 14 0>, // Enable => P8_16
@@ -33,12 +32,28 @@
 		            <&gpio2 4 0>; // D7 => P8_10
 
 		/** Uncomment this block to enable RGB lighting
-		pwm-names = "backlight_r", "backlight_g", "backlight_b";
+		pwm-names = "backlight_r",
+		            "backlight_g",
+		            "backlight_b";
 
 		// The RGB LEDs have a common anode, so enabling each one involves grounding its respective pin.
 		// Setting them to active low reduces cognitive overhead because setting its value
 		// to 1 turns it on and setting it to 0 turns it off
 		// DO NOT CHANGE THESE VALUES UNLESS YOU'VE LOADED A DIFFERENT OVERLAY!!!!
+		//
+		// For info on `ehrpwmN`, see:
+		//  - https://github.com/beagleboard/BeagleBoard-DeviceTrees/blob/e9e60c72b18581c0ec6fd102ada9bbe7cfc039b9/src/arm/overlays/BB-EHRPWM0-P9_29-P9_31.dtso
+		//  - https://github.com/beagleboard/BeagleBoard-DeviceTrees/blob/e9e60c72b18581c0ec6fd102ada9bbe7cfc039b9/src/arm/overlays/BB-EHRPWM1-P9_14-P9_16.dtso
+		//  - https://github.com/beagleboard/BeagleBoard-DeviceTrees/blob/e9e60c72b18581c0ec6fd102ada9bbe7cfc039b9/src/arm/overlays/BB-EHRPWM2-P8_13-P8_19.dtso
+		//
+		// Format is as follows:
+		//      <&pwmchip pin_offset duty_cycle [inverted]>
+		// where:
+		//      - `pwmchip` is one of the ehrpwm[0-2] (See files linked above).
+		//      - `pin_offset` is the offset of the pin on the chip (The offsets match the order specified in the overlays above)
+		//        e.g., According to https://github.com/beagleboard/BeagleBoard-DeviceTrees/blob/e9e60c72b18581c0ec6fd102ada9bbe7cfc039b9/src/arm/overlays/BB-EHRPWM2-P8_13-P8_19.dtso#L22-L25
+		//        `P8_13` is at offset `0` and `P8_19` at offset `1`
+		//      - `inverted` is optional and defines whether the polarity is inverted
 		pwms = <&ehrpwm0 1 50000 1>, // R => P9_29
 		       <&ehrpwm0 0 50000 1>, // G => P9_31
 		       <&ehrpwm1 0 50000 1>; // B => P9_14

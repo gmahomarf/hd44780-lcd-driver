@@ -1,7 +1,3 @@
-//
-// Created by gazy on 01-07-2026.
-//
-
 #ifndef HD44780_LCD_HD44780_LCD_PROBE_H
 #define HD44780_LCD_HD44780_LCD_PROBE_H
 

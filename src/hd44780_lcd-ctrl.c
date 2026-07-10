@@ -9,6 +9,10 @@
 #define SLEEP_SHORT_MICROSECONDS 50
 #define SLEEP_LONG_MICROSECONDS 1800
 
+#define COORDS(row, column) (((column) << 5) | (row))
+#define ROW(coords) ((coords) >> 5)
+#define COLUMN(coords) ((coords) & 0x0F)
+
 uint8_t hd44780_lcd_get_address(const struct lcd_data *lcd_data);
 uint8_t hd44780_lcd_read_byte(const struct lcd_data *lcd_data);
 void hd44780_lcd_wait_busy(const struct lcd_data *lcd_data);
@@ -19,7 +23,7 @@ void hd44780_lcd_write_byte(const struct lcd_data *lcd_data, uint8_t data);
 void hd44780_lcd_set_raw_address(const struct lcd_data *lcd_data, uint8_t address);
 void hd44780_lcd_wait_short(void);
 void hd44780_lcd_wait_long(void);
-void maybe_new_backlight_color(struct pwm_device *pwm, uint8_t color, const char *label);
+void hd44780_lcd_maybe_new_backlight_color(struct pwm_device *pwm, uint8_t color, const char *label);
 
 void hd44780_lcd_turn_on(const struct lcd_data *lcd_data) {
 	hd44780_lcd_write_instruction(lcd_data,
@@ -61,30 +65,19 @@ void hd44780_lcd_init(struct lcd_data *lcd_data) {
 	gpiod_set_value(lcd_data->rs, rs_data);
 	gpiod_set_value(lcd_data->rw, rw_read);
 
-	// Reading without init seems to return 0xF2 then 0x22 (i.e., `"`). Not sure why...
-	// Either way, let's check it 4 times in a row. If all 4 reads return 0xF2/0x22
-	// we can safely(?) assume the LCD hasn't been initialized
-	uint8_t c = 0x20;
+	/*
+	 * Reading without init seems to return 0xF2 then 0x22 (i.e., `"`). Not sure why...
+	 * Either way, let's check it 4 times in a row. If all 4 reads return 0xF2/0x22
+	 * we can safely(?) assume the LCD hasn't been initialized
+	 */
 	int n;
 	bool init = true;
 	for (n = 0; n < 4; n++) {
-		c = hd44780_lcd_read_byte(lcd_data);
+		const uint8_t c = hd44780_lcd_read_byte(lcd_data);
 		if (c != 0x22 && c != 0xF2) {
-			// lcd_data->initialized = true;
-			// return;
 			init = false;
 			break;
 		}
-	}
-
-	// Move cursor back n spaces because reading moved it forward n spaces
-	const uint8_t address = hd44780_lcd_get_address(lcd_data);
-	if (address == 0x00) {
-		hd44780_lcd_set_raw_address(lcd_data, 0x67);
-	} else if (address == 0x40) {
-		hd44780_lcd_set_raw_address(lcd_data, 0x27);
-	} else {
-		hd44780_lcd_set_raw_address(lcd_data, address - n);
 	}
 
 	if (init) {
@@ -118,7 +111,7 @@ void hd44780_lcd_set_lines(struct lcd_data *lcd_data, uint8_t lines) {
 	hd44780_lcd_wait_short();
 }
 
-void maybe_new_backlight_color(struct pwm_device *pwm, uint8_t color, const char *label) {
+void hd44780_lcd_maybe_new_backlight_color(struct pwm_device *pwm, uint8_t color, const char *label) {
 	struct pwm_state state;
 	u64 duty_cycle = pwm_get_duty_cycle(pwm);
 	u64 new_duty_cycle = (color * LCD_BACKLIGHT_PERIOD) / 255ULL;
@@ -139,20 +132,12 @@ void hd44780_set_backlight_color(const struct lcd_data *lcd_data, uint8_t red, u
 		return;
 	}
 
-	maybe_new_backlight_color(lcd_data->bl_r, red, "red");
-	maybe_new_backlight_color(lcd_data->bl_g, green, "green");
-	maybe_new_backlight_color(lcd_data->bl_b, blue, "blue");
+	hd44780_lcd_maybe_new_backlight_color(lcd_data->bl_r, red, "red");
+	hd44780_lcd_maybe_new_backlight_color(lcd_data->bl_g, green, "green");
+	hd44780_lcd_maybe_new_backlight_color(lcd_data->bl_b, blue, "blue");
 }
 
 void hd44780_lcd_set_position(struct lcd_data *lcd_data, uint8_t pos) {
-	if (pos < 0) {
-		pos = 0;
-	}
-
-	if (pos >= LCD_BUFFER_LENGTH) {
-		pos = LCD_BUFFER_LENGTH - 1;
-	}
-
 	uint8_t address = line_addresses[pos / LCD_LINE_LENGTH] + (pos % LCD_LINE_LENGTH);
 
 	hd44780_lcd_set_raw_address(lcd_data, address);
@@ -166,6 +151,20 @@ uint8_t hd44780_lcd_get_address(const struct lcd_data *lcd_data) {
 
 	// Addresses are only 7 bits long. The MSB is the busy flag, so we & it out
 	return hd44780_lcd_read_byte(lcd_data) & 0x7F;
+}
+
+uint8_t hd44780_lcd_get_position(struct lcd_data *lcd_data) {
+	uint8_t address = hd44780_lcd_get_address(lcd_data);
+	LCD_DEBUG("LCD address: %u\n", address);
+	for (int i = 0; i < LCD_LINE_COUNT; i++) {
+		if (line_addresses[i] <= address && address < line_addresses[i] + LCD_LINE_LENGTH) {
+			LCD_DEBUG("Line %u at position %u\n", i, address - line_addresses[i]);
+			return i * LCD_LINE_LENGTH + address - line_addresses[i];
+		}
+	}
+
+	// Should never get here
+	return -1;
 }
 
 uint8_t hd44780_lcd_read_byte(const struct lcd_data *lcd_data) {
@@ -207,7 +206,7 @@ void hd44780_lcd_wait_busy(const struct lcd_data *lcd_data) {
 	const int max = 200;
 	int c = 0;
 	bool flag = false;
-	while (c < max && !flag) {
+	for (c = 0; c < max && !flag; c++) {
 		hd44780_lcd_enable(lcd_data);
 		const int d7 = gpiod_get_value(lcd_data->d7);
 		if (d7 < 0) {
@@ -222,8 +221,6 @@ void hd44780_lcd_wait_busy(const struct lcd_data *lcd_data) {
 		hd44780_lcd_enable(lcd_data);
 		udelay(5);
 		hd44780_lcd_disable(lcd_data);
-
-		c++;
 	}
 	if (c >= max) {
 		LCD_DEBUG("Busy after %d loops", max);

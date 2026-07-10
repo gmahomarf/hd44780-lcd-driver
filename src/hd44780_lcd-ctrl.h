@@ -1,7 +1,3 @@
-//
-// Created by gazy on 02-07-2026.
-//
-
 #ifndef HD44780_LCD_HD44780_LCD_CTRL_H
 #define HD44780_LCD_HD44780_LCD_CTRL_H
 
@@ -18,7 +14,6 @@ enum rw_values {
 	rw_read,
 };
 
-#define LINE_WIDTH 20
 static const uint8_t line_addresses[4] = {
 	0x00,
 	0x40,
@@ -143,6 +138,8 @@ void hd44780_lcd_read_data(const struct lcd_data *lcd_data, char *buf, size_t bu
  * @param pos The position to set
  */
 void hd44780_lcd_set_position(struct lcd_data *lcd_data, uint8_t pos);
+
+uint8_t hd44780_lcd_get_position(struct lcd_data *lcd_data);
 
 void hd44780_lcd_set_coords(const struct lcd_data *lcd_data, uint8_t row, uint8_t column);
 

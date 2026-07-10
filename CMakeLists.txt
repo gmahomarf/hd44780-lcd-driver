@@ -5,6 +5,7 @@ set(MODULE_NAME "hd44780_lcd")
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_GENERATOR Ninja)
 
 project(${MODULE_NAME}
         VERSION ${MODULE_VERSION}
@@ -37,17 +38,28 @@ set(DRIVER_HEADERS
         src/${MODULE_NAME}-dtbo.h
 )
 
-###########################################################
-#################      KBuild config      #################
-###########################################################
-set(ARCH arm)
-set(CROSS_COMPILE arm-linux-gnueabihf-)
-
 set(CACHE{KERNEL_DIR}
         TYPE PATH
         HELP "Base directory for the linux headers (e.g., /lib/modules/$(uname -r)/build)"
         VALUE ""
 )
+set(CACHE{LCD_LINE_COUNT}
+        TYPE STRING
+        HELP "The amount of lines that the LCD can display"
+        VALUE ""
+)
+set(CACHE{LCD_LINE_LENGTH}
+        TYPE STRING
+        HELP "The number of characters per line that the LCD can display"
+        VALUE ""
+)
+
+
+###########################################################
+#################      KBuild config      #################
+###########################################################
+set(ARCH arm)
+set(CROSS_COMPILE arm-linux-gnueabihf-)
 
 #[[
 # This only makes sense when compiling on the board. I don't feel like doing that :)\
@@ -62,15 +74,13 @@ if ("${KERNEL_DIR}" STREQUAL "")
     set(KERNEL_DIR "/lib/modules/${KERNEL_VERSION}/build")
 endif ()
 ]]
-
-if (NOT IS_READABLE ${KERNEL_DIR})
-    message(FATAL_ERROR "\nDirectory ${KERNEL_DIR} does not exist or is not readable")
+if ("${KERNEL_DIR}" STREQUAL "")
+    message(FATAL_ERROR "\n Kernel directory not set. Please set `KERNEL_DIR`")
 endif ()
 
-set(KCPPFLAGS "-DLCD_LINE_COUNT=${LCD_LINE_COUNT}" "-DLCD_LINE_LENGTH=${LCD_LINE_LENGTH}")
-list(FILTER KCPPFLAGS
-        EXCLUDE REGEX "=$"
-)
+if (NOT IS_READABLE ${KERNEL_DIR})
+    message(FATAL_ERROR "\nDirectory '${KERNEL_DIR}' does not exist or is not readable")
+endif ()
 
 ###########################################################
 ##########     KBuild file generation stuff     ###########
@@ -85,29 +95,29 @@ file(WRITE ${CMAKE_CURRENT_SOURCE_DIR}/Kbuild
         ${KBUILD_SOURCE})
 
 ###########################################################
-################     Custom commands     ##################
+#################     Custom targets     ##################
 ###########################################################
 
 ### Compile Device Tree source to blob
-set(DTC_BUILD_CMD
-        dtc
-        -@
-        -I dts
-        -O dtb
-        -o ${DEVICE_TREE_BLOB}
-        ${DEVICE_TREE_SOURCE}
-)
 add_custom_target(dtb
-        COMMAND ${DTC_BUILD_CMD}
+        COMMAND
+            dtc
+            -@
+            -I dts
+            -O dtb
+            -o ${DEVICE_TREE_BLOB}
+            ${DEVICE_TREE_SOURCE}
         BYPRODUCTS ${DEVICE_TREE_BLOB}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         SOURCES ${DEVICE_TREE_SOURCE}
         VERBATIM
 )
+set_target_properties(dtb
+        PROPERTIES ADDITIONAL_CLEAN_FILES ${CMAKE_CURRENT_SOURCE_DIR}/${DEVICE_TREE_BLOB}
+)
 
 ### Create DTB C source file
 #[[
-
 Here we leverage `xxd`s `-i` flag to generates a C file that contains the compiled Device Tree blob (DTB) as an
 `unsigned char` array and an `unsigned int` length. The code looks something like this:
 
@@ -129,31 +139,36 @@ add_custom_target(dtb_c
         VERBATIM
 )
 add_dependencies(dtb_c dtb)
+set_target_properties(dtb_c
+        PROPERTIES ADDITIONAL_CLEAN_FILES ${CMAKE_CURRENT_SOURCE_DIR}/${DEVICE_TREE_BLOB_C}
+)
 
 ### Build the kernel module
-set(KBUILD_CMD make
-        ARCH=${ARCH}
-        CROSS_COMPILE=${CROSS_COMPILE}
-        -C "${KERNEL_DIR}"
-        modules
-        M=${CMAKE_CURRENT_SOURCE_DIR}
-        MO=${CMAKE_CURRENT_BINARY_DIR}
-        KCPPFLAGS=${KCPPFLAGS}
+set(KCPPFLAGS
+        $<$<CONFIG:Debug>:-DDEBUG_LCD=1>
+        $<$<NOT:$<STREQUAL:${LCD_LINE_COUNT},>>:-DLCD_LINE_COUNT=${LCD_LINE_COUNT}>
+        $<$<NOT:$<STREQUAL:${LCD_LINE_LENGTH},>>:-DLCD_LINE_LENGTH=${LCD_LINE_LENGTH}>
 )
 
 add_custom_target(module
-        BYPRODUCTS ${DRIVER_FILE}
-        COMMAND ${KBUILD_CMD}
+        BYPRODUCTS module/${DRIVER_FILE}
+        COMMAND make
+            ARCH=${ARCH}
+            CROSS_COMPILE=${CROSS_COMPILE}
+            -C "${KERNEL_DIR}"
+            modules
+            M=${CMAKE_CURRENT_SOURCE_DIR}
+            MO=${CMAKE_CURRENT_BINARY_DIR}/module
+            KCPPFLAGS="${KCPPFLAGS}"
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
         SOURCES ${DRIVER_SOURCES} ${DRIVER_HEADERS}
-        VERBATIM
 )
 
 add_dependencies(module dtb_c)
 
 ### Add single target to build everything
 add_custom_target(driver ALL
-        DEPENDS ${DRIVER_FILE}
+        DEPENDS module
 )
 
 # Commands beyond this comment are only here to please IDEs (or their plugins) that either support CMake directly or
@@ -167,6 +182,7 @@ add_library(dummy_target
 include_directories(
         "${KERNEL_DIR}/include"
         "${KERNEL_DIR}/arch/${ARCH}/include"
+        "${KERNEL_DIR}/arch/${ARCH}/include/"
 )
 
 # Add some definitions added by KBuild
