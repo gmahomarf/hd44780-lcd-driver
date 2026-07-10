@@ -10,6 +10,7 @@
 > **⚠️DO NOT USE THIS IN PRODUCTION!⚠️**
 
 <h2>Table of Contents</h2>
+
 <!-- TOC -->
   * [Intro](#intro)
   * [Building](#building)
@@ -24,6 +25,7 @@
     * [Caveats (i.e. things to keep in mind)](#caveats-ie-things-to-keep-in-mind)
     * [Writing](#writing)
     * [Reading](#reading)
+    * [Special functions](#special-functions)
 <!-- TOC -->
 
 ## Intro
